@@ -401,7 +401,7 @@ We have gotten a better understanding of what sets a Superhost apart from the re
 With the help of Google Map's API and the Zipcode library, I was able to plot Superhosts by zipcode on a map. The size of the circles `listing_freq` is the amount of listings that live within that zipcode. The color `pct_superhost` is the relative percent of listings that are ran by Superhosts in that zipcode.
 
 ```{r googlekey, echo=FALSE, warning=FALSE, message=FALSE}
-register_google(key = "AIzaSyDEQ4N8ZJZouufVm4g0WdMWSS3niY6dOwU", write = TRUE)
+register_google(key = "googlekey", write = TRUE)
 ```
 
 ```{r map_of_listings, fig.height = 5, fig.width = 6, echo=TRUE, warning=FALSE, message=FALSE}
