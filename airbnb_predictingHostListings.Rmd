@@ -1,0 +1,742 @@
+---
+title: "Predicting Host Ratings of Austin Airbnb Listings"
+author: "Gabrielle Pincomb"
+date: "12/02/2019"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 5
+    theme: cosmo
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<br>
+
+## Project Background
+Airbnb is a homesharing platform, founded in 2008. The service allows for accomodations outside of the typical hotel experience. Homeowners, renters, or property owners, get to rent their home, or a space in their home, to travelers seeking housing. This service allows for hosts to be able to make some extra income and allows for the guests to get a stay that is typically cheaper than a hotel room. Airbnb has taken the hotel industry by storm. Consumer spending in Airbnb is growing faster than spending in the hotel industry. Airbnb has changed the way we think of hospitality and lodging, and continues to impact our expectations in accomodations. 
+
+<center>
+![](img/airbnb_vs_hotel.png){ width=50% }
+</center>
+
+Staying at a complete stranger's house can be a little bit unsettling, but Airbnb has systems in place to help establish trust. Each user (both guest and host) must have a profile and verified identification(s). This allows for guests and hosts to learn more about each other prior to their stay. Additionally, this allows for hosts to decide to allow the guest to stay at their listing or not. 
+
+<center>
+![](img/aboutme.png){ width=50% }
+</center>
+
+At the completion of the guest's stay, guets and hosts review and rate each other. This helps hosts get future bookings and guests get quicker acceptances.
+
+<center>
+![](img/guestreview.png){ width=50% }
+</center>
+
+Being an Airbnb host can be very lucrative. According to smartassest.com, if a host lives in a two-bedroom house/apartment and rents out one room in the two-bedroom unit, the host can expect to earn income equivalent to 80% of the rent. And in some cities, it can be possible to pay the entire rent with about 20 days of bookings per month. Listing a room on Airbnb can be better than having a roomate. But unlike having a roomate, being a host comes with work, and some hosts are better than others. The exceptional hosts of Airbnb are identified on the site as "Superhosts". The Superhosts get perks like more visibility, allowing even greater earning potenital by being able to attract more guests.
+
+<center>
+![](img/austin_airbnb.png){ width=50% }
+</center>
+
+## The Project
+Because I am an advocate for Airbnb, and an avid user of the platform (12 stays in 2019), I decided to focus my project on Airbnb. As a user, I recognized my own personal behavior when searching for bookings; there are three things I typically look at: location, cost, and host rating. I noticed a trend in my behavior -- most of my stays have been with Superhosts. In fact, that is usually something I filter upon when searching for my listings, and I found myself asking "what does it take to become a Superhost?".
+
+According to Airbnb, the minimum criteria to become a Superhost is to have:
+
+* An overall rating greater than 4.8 based on reviews in the past year
+* A minimum of 10 stays in the past year
+* A cancellation rate of less than 1%
+* A 90% response rate
+* An account in good standing
+
+### Project Aim
+Use machine learning to predict if an Austin Airbnb listing is hosted by a Superhost.
+
+### The Dataset
+The dataset for this project comes from Insideairbnb.com. Inside Airbnb is an anti-lobby group that utilizes and compiles public information from airbnb.com. It compiles all listings and the respective listings' information, by city, to allow for visibility for how Airbnb is really being used around the world. 
+
+```{r import, echo=TRUE}
+file <- "data/austin_listings_2019_nov12.csv"
+df <- read.csv(file, stringsAsFactors = FALSE)
+dim(df)
+```
+
+The Austin dataset was scraped on November 12, 2019. The original dataset has `r dim(df)[1]` observations and `r dim(df)[2]` variables. 
+
+### Libaries used for analysis:
+
+```{r libraries, echo=TRUE, message=FALSE, warning=FALSE}
+library(plyr)         # data manipulation
+library(tidyverse)    # data cleaning
+library(data.table)   # data aggregation
+library(lubridate)    # modifying date values
+library(corrplot)     # correlation plot
+library(ggmap)        # geo-spatial visualization
+library(ggplot2)      # visualization
+library(gridExtra)    # visualization
+library(scales)       # visualization
+library(RColorBrewer) # visualization
+library(tm)           # text mining
+library(caret)        # model training and classification
+library(DMwR)         # machine learning
+library(pROC)         # model evaluation
+```
+
+### Data Cleansing
+
+#### Variable Selection
+
+The first step in my data cleansing process was to narrow down the amount of variables. From looking at the dataset, I was able to quickly identify columns not necessary for my analysis such as fields containing URLs, scrape details, information regarding additional listings, redundant fields, and calendar information. I narrowed down the columns to the ones below:
+
+```{r column_selection, echo=TRUE}
+columnsToDelete <- c("url", "listings", "availability", "\\bhost_id\\b", 
+                     "_name", "scrape", "minimum", "maximum", "require",
+                     "\\bneighbourhood\\b","group","experiences_offered", 
+                     "street", "city", "state","zipcode", "market","location", 
+                     "country", "latitude", "longitude","acceptance",
+                     "host_neighbourhood", "_price", "security_deposit", 
+                     "square_feet", "guests_included", "extra_people", 
+                     "calendar", "license", "travel_ready","cleaning_fee",
+                     "first_review", "last_review", "reviews_per_month")
+
+# removing uneccessary columns
+df <- df[,colnames(df)[colnames(df) %in% unique(grep(paste(columnsToDelete,collapse="|"), 
+                        colnames(df), value=TRUE)) == FALSE]]
+colnames(df)
+```
+
+**Predicted class =** `host_is_superhost`
+
+#### Variable Classes
+
+I continued cleaning the fields within the dataset to ensure they were the appropriate class.
+
+```{r column_formating, echo=TRUE, message=FALSE, warning=FALSE}
+# checking df
+glimpse(df)
+
+# prior to formatting, setting all blanks to NA
+df[df == ""] <- NA
+
+# creating dummy variables
+df[df == "t"] <- 1   
+df[df == "f"] <- 0
+
+# moving class variable to first column in df and creating factor
+df <- df %>%
+  select(host_is_superhost, everything()) %>%
+  filter(!is.na(host_is_superhost)) %>% # removing nas values for class variable
+  mutate(host_is_superhost = as.factor(as.character(host_is_superhost)))
+
+# removing special characters in columns
+df[c("price", "host_response_rate")] <- sapply(df[c("price", "host_response_rate")],
+       function(x) as.numeric(gsub("\\$|%", "", x)))
+
+# class adjustments
+df$id <- as.character(df$id)
+df$host_since <- as.Date(df$host_since)
+df <- df %>%
+  dplyr::rename(zipcode = neighbourhood_cleansed) %>%   # renaming zipcode column
+  mutate(zipcode = as.character(zipcode))
+```
+
+#### Handling Missing Values
+
+The data is messy and has many missing values that need correction.
+
+```{r na_check, echo=TRUE}
+# looking for NA's in numeric columns
+na_count <- colnames(df)[colSums(is.na(df)) > 0]
+sapply(df[,na_count], function(x) sum(length(which(is.na(x)))))
+
+# looking for NA's in text columns
+sum(grepl("N/A", df$host_response_time))
+```
+
+To correct some of the NA's, I replaced the numeric columns with the median value of their column. For the character column, I created dummy values and found the mean based on the `host_response_rate` column.
+
+```{r handling_na, echo=TRUE, message=FALSE, warning=FALSE}
+# replacing columns with median values
+numericCols <- colnames(select_if(df, is_numeric))
+numericCols <- numericCols[-grep("host_since|host_is_superhost", numericCols)]   # removing host_since & class variable
+df[, numericCols] <- sapply(df[, numericCols], 
+                            function(x) ifelse(is.numeric(x) & is.na(x),
+                                               round(median(x, na.rm = TRUE)), x))
+
+# checking for no NA's in numeric columns
+colSums(is.na(df[, numericCols]))
+
+# replacing text column with median values
+dummy <- as.data.frame(unique(df$host_response_time[df$host_response_time != "N/A"]))
+colnames(dummy) <- c("host_response_time.x")
+dummy$dummy <- c(2,1,3,4)
+
+df <- df %>% # adding dummy column
+  left_join(dummy, by = c("host_response_time" = "host_response_time.x")) %>% 
+  mutate(host_response_rate_cut = cut(host_response_rate, 10, include.lowest=TRUE))
+
+df <- df %>% # replacing missing value with mean value
+  group_by(host_response_rate_cut) %>%
+  summarise(dummy = floor(mean(dummy, na.rm = TRUE))) %>%
+  left_join(dummy) %>%
+  right_join(df, by = c("host_response_rate_cut")) %>%
+  mutate(host_response_time = ifelse(host_response_time == "N/A",
+                                     as.character(host_response_time.x),
+                                     host_response_time)) %>%
+  select(-host_response_rate_cut, -dummy.x, -dummy.y, -host_response_time.x)
+
+# checking for no NA's in text column
+sum(grepl("N/A", df$host_response_time))
+```
+
+#### Adding Additional Variables
+
+Each host has the opportunity to provide details of their listing. My hunch is that a Superhost would put more effort into their listing and provide more details (i.e., word counts). To measure this, I took the freeform  descriptor character columns below and counted the words in each column. I then summed all word counts and generated a new column: `description_wordcount`.
+
+```{r listing_details, echo=TRUE}
+# getting descriptor columns
+descriptorCols <- colnames(df)[4:7]
+print(descriptorCols)
+
+# counting words in descriptor columns
+descriptorCounts <- list()
+for (i in descriptorCols){
+  descriptorCounts[[i]] <- (lengths(gregexpr("\\W+", df[, i])) + 1)
+}
+
+# adding description_wordcount to df
+df <- as.data.frame(descriptorCounts) %>%
+  mutate(description_wordcount = summary + space + description + neighborhood_overview) %>%
+  select(description_wordcount) %>%
+  cbind(df)
+df <- df[,c(2:ncol(df), 1)] 
+```
+
+Each listing has a list of amenities that the host provides. The column is messy, so first I cleaned the column and then generated a new column `amenities_count` that counts the number of amenities the host provides.
+
+```{r amenities, echo=TRUE}
+# current format
+df$amenities[1]
+
+# re-formating amenities column
+df$amenities <- gsub("(^|[[:space:]])([[:alpha:]])", "\\1\\U\\2", df$amenities, perl=TRUE)
+df$amenities <- gsub("[^a-zA-Z]+", " ", gsub(" ", "", gsub("\\-|\\(|\\)", "", df$amenities)))
+df$amenities[1]
+
+# counting words (amenities) in amenities column
+df$amenities_count <- lengths(gregexpr("\\W+", df$amenities)) - 1
+
+# re-formatted and counted
+df$amenities_count[1]
+```
+Later, I will do some breif text mining to see what exactly Superhosts are including in their details and amenities that Non-Superhosts are not.
+
+Next, I added a column `years_host` to determine a numeric value of years the host has had listings on Airbnb.
+
+```{r years_host, echo=TRUE}
+# using filename, extracting file scrape year
+scrape_year <- str_extract(file, "\\d{4}")
+print(scrape_year)
+
+# subtracting host_since year from scrape_year to get # years host
+df$years_host <- as.numeric(scrape_year) - as.numeric(year(df$host_since))
+
+# check
+df %>%
+  select(host_since, years_host) %>%
+  head(5)
+```
+
+### Exploratory Data Analysis
+
+* Predict class value overview
+* Correlations between variables
+* Distribution of features by Superhost status
+* Geo-spatial data analysis
+* Brief text mining of listings
+
+#### Predicted Class Values
+
+For simplicity during the EDA, I renamed the predicted class variable, `host_is_superhost`, values to "non-superhost" and "superhost".
+
+```{r class_values, echo=TRUE}
+# changing factor levels 0 and 1
+levels(df$host_is_superhost) <- c("non.superhost", "superhost")
+print(levels(df$host_is_superhost))
+```
+
+#### Correlation Variables
+
+To kick off my exploratory data analysis (EDA), first, I checked the correlations between the variables. 
+
+```{r correlation_1, echo=TRUE, warning=FALSE, message=FALSE}
+# getting numeric columns
+numericCols <- colnames(select_if(df, is_numeric))
+numericCols <- numericCols[-grep("host_since|host_is_superhost", numericCols)]   # removing host_since
+
+# correlation plot
+corr <- round(cor(df[,numericCols]), 2)
+corrplot(corr, method = "color", type = "lower")
+```
+
+At a glance, there is a lot of correlation between the review_scores, which is expected. I then checked for all variables that have correlations higher than 0.5 or less than -0.5. This confirmed the majority of variables with high correlations are the review_scores columns. Additionally, the number of guests a listing accomodates and the number of bedrooms and bathrooms also has a high correlation. 
+
+```{r correlation_2, echo=TRUE, warning=FALSE, message=FALSE}
+# checking variables with correlations > 0.5 or < -0.5
+setDT(melt(corr))[Var1 != Var2, .SD[which(value > .5 | value < -.5)], keyby=Var1]
+```
+
+For my analysis, I removed all review_scores variables except for the overall rating (`review_scores_rating`). Additionally, I chose to keep the `bedrooms` column and remove `accomdates`, `bathrooms`, and `beds`. I felt the number of bedrooms available in a listing, impacts how many the listing can accomodate and the number of bathrooms and beds available.
+
+```{r correlation_3, echo=TRUE}
+# removing correlated review_scores columns
+df <- df[,-grep("review_scores", colnames(df))[-1]]
+
+# removing correlated accomodates, bathrooms, & beds columns
+columnsToDelete <- c("accoomodates", "bathrooms", "beds")
+df <- df[,colnames(df)[colnames(df) %in%
+                         unique(grep(paste(columnsToDelete,collapse="|"), 
+                        colnames(df), value=TRUE)) == FALSE]]
+```
+
+#### Distribution of Features by host_is_superhost Group
+
+##### Listing Price
+
+When thinking of staying with an incredible host, you'd assume to pay for quality. I decided to look into this thought by examining the distributions of nightly prices of Superhosts and Non-Superhosts, and the results is opposite of what I expected.
+
+```{r features_price, fig.height = 3, fig.width = 7, echo=TRUE}
+# mean for each group
+dat <- ddply(df, "host_is_superhost", summarise, mean.price = round(mean(price), 2), median.price = round(median(price), 2))
+print(dat)
+
+# density plots with means
+ggplot(df, aes(x = price, colour=host_is_superhost)) +
+  geom_density() +
+  geom_vline(data = dat, aes(xintercept = mean.price, colour=host_is_superhost),
+               linetype="dashed", size=1) +
+  ggtitle("Listing Price by Superhost Rating")
+```
+
+On average, Non-Superhosts have a higher mean nightly rate than Superhosts (`r dat$mean.price[1]` vs `r dat$mean.price[2]`), but the median of the two are around the same price range. Non-Superhosts have more outliers, a longer right tail, than Superhosts. From my research, this can be the results of the many popular events in Austin such as SXSW and Austin City Limits. Austin residents cash in on the travelers flocking to the city for these events and post their property on Airbnb for an outrageous price. These residents are not dedicated hosts and are probably not seeking a Superhost identification, but rather quick cash.
+
+##### Cancellation Policy
+
+Another interesting trend I found amongst the Superhosts and Non-Superhosts was the cancellation rates. My original thought was that Superhosts would be flexible with cancellations, because if you have to cancel, they are more likely to get another reservation to replace the loss. The data showed me different.
+
+According to Airbnb, the cancellation policies fall into:
+
+* Flexible - Free cancellation until 24 hours before check-in
+* Moderate - Free cancellation until 5 days before check-in
+* Strict - Free cancellation for 48 hours, as long as the guest cancels at least 14 days before check-in
+* Super Strict - Guests can cancel at least 30 or 60 days before check-in and get a 50% refund of the nightly rate and the cleaning fee, but not the service fee
+
+```{r features_cancellation, fig.height = 3, fig.width = 7, echo=TRUE}
+# cleaning cancellation policies
+df$cancellation_policy[grep("super_strict", df$cancellation_policy)] <- "super_strict"
+df$cancellation_policy[grep("^strict", df$cancellation_policy)] <- "strict"
+df$cancellation_policy[grep("moderate", df$cancellation_policy)] <- "moderate"
+
+# bar plots with % distribution
+df %>%
+  group_by(host_is_superhost, cancellation_policy) %>%
+  dplyr::count() %>%
+  group_by(host_is_superhost) %>%
+  mutate(pct_ttl = round(n/sum(n),2)) %>%
+  ggplot(aes(x = cancellation_policy, y = pct_ttl, fill = host_is_superhost)) +
+  xlab(c("cancellation_policy")) +
+  ylab(c("percent of total group")) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  ggtitle("Cancellation Policy by Superhost Rating")
+```
+
+Superhosts are much less flexible than Non-Superhosts. In fact, a greater proportion of them are more strict. After thinking about this, it makes sense -- Superhosts are hosts who are dedicated to Airbnb. From my personal experience with staying with Superhosts, a lot of them use Airbnb as a primary source of income. They are committed to serving you and have the expectation you will be committed to making your stay.
+
+##### Years Hosting on Airbnb
+
+Another hunch is that Superhosts will have more years of experience hosting on Airbnb. I plotted the `years_host` to see if the data holds true.
+
+```{r features_yearshost, fig.height = 3, fig.width = 7, echo=TRUE}
+# mean for each group
+dat <- ddply(df, "host_is_superhost", summarise, mean.years = round(mean(years_host), 1), median.years = round(median(years_host), 1))
+print(dat)
+
+# box plots with means
+ggplot(df, aes(x = host_is_superhost, y = years_host, fill = host_is_superhost)) + 
+  geom_boxplot() +
+  guides(fill=FALSE) +
+  stat_summary(fun = mean, geom="point", shape=5, size=6) +
+  ggtitle("Years Host by Superhost Rating")
+```
+
+As suspected, Superhosts in Austin, on average, have been hosts for `r dat$mean.years[2]` years and Non-Superhosts have been hosts for `r dat$mean.years[1]` on average. 
+
+##### Review Scores
+
+For a host to be a Superhost, there is the expectation that they will have better ratings. I plotted Superhosts and Non-Superhosts density plots to check if this holds up.
+
+```{r features_ratings, fig.height = 3, fig.width = 7, echo=TRUE, warning=FALSE, message=FALSE}
+# mean for each group
+dat <- ddply(df, "host_is_superhost", summarise, mean.rating = round(mean(review_scores_rating), 1), median.rating = round(median(review_scores_rating), 1))
+print(dat)
+
+# density plots with means
+ggplot(df, aes(x = review_scores_rating, colour=host_is_superhost)) +
+  geom_density() +
+  geom_vline(data = dat, aes(xintercept = mean.rating, colour=host_is_superhost),
+               linetype="dashed", size=1) +
+  ggtitle("Distribution of Review Scores by Superhost Rating") +
+  xlim(75,100)
+```
+
+Non-Superhosts have a longer left tail, meaning more negative ratings than Superhosts. Most of the Superhost ratings hover around 95 and higher, peaking at 100. Non-Superhosts peak at around 97. Both Superhosts and Non-Superhosts have a median rating of `r dat$median.rating[1]`, but Superhosts mean rating score of `r dat$mean.rating[2]` is higher than Non-Superhost's mean rating score of `r dat$mean.rating[1]`.
+
+#### Mapping of Listings
+
+We have gotten a better understanding of what sets a Superhost apart from the rest, but does location have a role in whether a host is likely to be a Superhost or not?
+
+With the help of Google Map's API and the Zipcode library, I was able to plot Superhosts by zipcode on a map. The size of the circles `listing_freq` is the amount of listings that live within that zipcode. The color `pct_superhost` is the relative percent of listings that are ran by Superhosts in that zipcode.
+
+```{r googlekey, echo=FALSE, warning=FALSE, message=FALSE}
+register_google(key = "AIzaSyDEQ4N8ZJZouufVm4g0WdMWSS3niY6dOwU", write = TRUE)
+```
+
+```{r map_of_listings, fig.height = 5, fig.width = 6, echo=TRUE, warning=FALSE, message=FALSE}
+# loading zipcode library
+library(zipcode)
+data(zipcode)
+
+# frequencies of listings and superhosts by zipcodes
+zip_df <- left_join(df[,c("host_is_superhost", "zipcode")], zipcode, by = c("zipcode" = "zip"))
+listing_freq <- ddply(zip_df, .(zipcode), "nrow")
+names(listing_freq)[2] <- "listing_freq"
+
+superhost_freq <- ddply(zip_df, .(zipcode, host_is_superhost), "nrow") %>%
+  filter(host_is_superhost == "superhost") %>%
+  select(-host_is_superhost)
+names(superhost_freq)[2] <- "superhost_freq"
+
+# creating zipcode df
+zip_df <- zip_df %>%
+  select(-host_is_superhost) %>%
+  distinct() %>%
+  left_join(listing_freq) %>%
+  left_join(superhost_freq) %>%
+  arrange(-listing_freq) %>%
+  mutate(pct_superhost = round(superhost_freq/listing_freq,2)) # calculating % of superhosts per total listings in zipcode
+print(head(zip_df))
+
+# plotting map of Austin, TX
+location <- geocode("West Lake Hills, Austin, TX")
+ggmap(get_map(location, zoom = 11), ylab = "Latitude", xlab = "Longitude") +   
+  geom_point(aes(x=longitude, y=latitude, size=listing_freq, color=pct_superhost), 
+             alpha = .75, data=zip_df) +
+  scale_size_continuous(range = c(1,9)) +
+  scale_color_gradient(high = "dark blue", low = "grey") +
+  ggtitle("Mapped Airbnb Listings in Austin, TX")
+```
+
+The zipcode with the highest amount of listings is `r zip_df$zipcode[1]`, which is the Bouldin/South Lamar neighbhoorhood. According to austinlocationguide.com, this zipcode region is the epitome of Austin living, so it makes sense why so many property listings are in this high-demand area. Although `r zip_df$zipcode[1]` has the highest amount of listings, it does not have the highest percentage of Superhosts. The top zipcode with the highest percentage of Superhosts is `r zip_df %>% arrange(-pct_superhost) %>% select(zipcode) %>% head(1)` with `r (max(zip_df$pct_superhost, na.rm = TRUE))*100`% of listings being Superhosts. 
+
+#### Brief Text Mining
+
+Each host has the opportunity to provide details of their listing showcased in the free-form columns. The listing details are a good opportunity for text mining. Although I will not be going into a deep text-mining analysis, I thought it would be interesting to explore these fields briefly.
+
+```{r text_mining_subset, echo=TRUE}
+# getting text columns
+txtCols <- colnames(select_if(df, is_character))
+txtCols <- txtCols[c(2:12,21)]
+print(txtCols)
+```
+
+Next, I wrote a function for counting the frequencies of words in each of the free-form text columns. I then wrote a function for calculating the delta in word frequency counts between Superhost and Non-Superhosts. Additionally, I added in a function for plotting the deltas.
+
+```{r text_mining_functions, echo=TRUE, message=FALSE, warning=FALSE}
+# function for counting words in text columns
+wordcounts <- function(df, txt_column){
+  # removing NAs
+  tmp <- df %>%
+    select(txt_column) %>%
+    filter(!is.na(txt_column))
+  # creating corpus
+  corp <- SimpleCorpus(VectorSource(tmp))
+  corp <- tm_map(corp, content_transformer(tolower))
+  # cleaning words
+  corp <- tm_map(corp, content_transformer(function(x) gsub("'ll|'ve", "", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("minutes|\\bmi(ns|n)\\b", "minute", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("guests", "guest", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("bedrooms", "bedroom", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("beds", "bed", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("mattresses", "mattress", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("bathrooms", "bathroom", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("^rooms", "room", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("homes", "home", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("neighborhoods", "neighborhood", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("austins", "austin", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("\\bbar\\b", "bars", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("\\bstore\\b", "stores", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("\\bshop\\b", "shops", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("\\btrail\\b", "trails", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("miles", "mile", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("walking", "walk", x)))
+  corp <- tm_map(corp, content_transformer(function(x) gsub("nearby", "near", x)))
+  corp <- tm_map(corp, removePunctuation)
+  corp <- tm_map(corp, removeWords, c(stopwords("english"),
+                                      "just","away","can","also","within","will","like","need","use","lots",
+                                      "many","get","well","feel","make","find","one","two","three","four","five"))
+  dtm <- DocumentTermMatrix(corp)
+  # getting sums of word frequencies
+  sums <- as.data.frame(colSums(as.matrix(dtm)))
+  sums <- rownames_to_column(sums)
+  colnames(sums) <- c("term", "count")
+  sums <- sums %>%
+    arrange(desc(count)) %>%
+    mutate(pct = count / sum(count))
+  invisible(sums)
+}
+
+# function for calculating delta between superhosts and non-superhosts
+ratings_counts <- function(df, txt_column){
+  # splitting to 2 separate df based on class
+  tmp_1 <- df %>%
+    filter(host_is_superhost == "superhost")
+  tmp_0 <- df %>%
+    filter(host_is_superhost == "non.superhost")
+  # applying wordcounts function
+  tmp_1 <- wordcounts(tmp_1, txt_column)
+  tmp_0 <- wordcounts(tmp_0, txt_column)
+  # joining df to find differences in word frequencies
+  tmp <- full_join(tmp_1, tmp_0, by = c("term")) %>%
+    mutate(delta = pct.x - pct.y) %>%
+    filter(pct.x > .002 | pct.y > .002) %>%
+    arrange(-delta) 
+  colnames(tmp) <- c("term", "freq_superhosts", "proportion_superhosts", 
+                     "freq_nonsuperhosts", "proportion_nonsuperhosts", "delta")
+  invisible(tmp)
+}
+
+# fuction for plotting delta between superhosts and non-superhosts
+delta_plot <- function(df, name){
+  ggplot(df, aes(proportion_superhosts, proportion_nonsuperhosts)) +
+  geom_point(alpha = .1, size = 2.5, width = 0.25, height = 0.25) +
+  geom_text(aes(label = term), check_overlap = TRUE, vjust = 1) +
+  ylab("Non-Superhosts") +
+  xlab("Superhosts") +
+  scale_x_continuous(labels = percent_format()) +
+  scale_y_continuous(labels = percent_format()) +
+  geom_abline(color = "red") +
+  ggtitle(name)
+}
+```
+
+Once my functions were established, I decided to look at 4 free-form text columns `name`, `description`, `neighborhood_overview`, and `amenities` to determine the deltas between word frequencies for Superhosts and Non-Superhosts.
+
+```{r text_mining_plots, echo=TRUE, message=FALSE, warning=FALSE}
+# finding deltas between most frequent words used in superhosts versus non-superhosts listings
+name <- ratings_counts(df, "name")
+description <- ratings_counts(df, "description")
+neighborhood_overview <- ratings_counts(df, "neighborhood_overview")
+amenities <- ratings_counts(df, "amenities")
+
+# plotting deltas
+p_name <- delta_plot(name, "Listing Name")
+p_description <- delta_plot(description, "Description of Listing")
+p_neighborhood <- delta_plot(neighborhood_overview, "Neighborhood Overview")
+p_amenities <- delta_plot(amenities, "Listing Amenities")
+
+grid.arrange(p_name, p_description, p_neighborhood, p_amenities, ncol = 2)
+```
+
+**How to Read the Plot** 
+
+Words near the line are used at about the same frequency between both Superhosts and Non-Superhosts. The further away from the line, the more likely the word is to be used by one group versus the other. The above words are words used in both Superhosts and Non-Superhosts listings.
+
+**Listing Name** 
+
+Both Superhosts and Non-Superhosts are likely to use the terms "condo", "room", "downtown", and "austin" in their listing name, with "austin" being the highest frequency. Superhosts are more likely to use words that showcase the lifestyle of their listing, such as "modern" and "retreat". Non-Superhosts commonly use "sxsw" and "acl"" in their listing name. This validates my theory that Non-Superhosts are more likely to throw up a listing for big events like South By Southwest (SXSW) and Austin City Limits (ACL).
+
+**Description of Listing** 
+
+Words such as "downtown", "minute", "walk", "apartment", and "sxsw" are more frequently mentioned in Non-Superhosts' listings, meanwhile, words such as "private", "home", "guest", and "coffee", are more frequently mentioned in Superhosts' listings. Based on these top words, it appears that Non-Superhosts have listings focused on a more party-like experience and appears to have heavy focus on being downtown and walkable. Superhosts focus more on a peaceful getaway, luxuries, and amenities.
+
+**Neighborhood Overview** 
+
+Both Superhosts and Non-Superhosts frequently mention "bars" and "restaurants", but "restaurants" is mentioned slightly more for Non-Superhosts. Non-Superhosts once again describe "downtown" and other popular areas such as "south" (South Congress) and "barton" (Barton Springs). Superhosts mention "historic" and "east" (East Austin) frequently.
+
+**Amenities** 
+
+Amenities provided by Superhosts and Non-Superhosts are very different. Some amenities Superhosts typically provide, but Non-Superhosts do not, are a coffee maker, extra pillows and blankets, cooking basics, luggage dropoff, and free parking. Both provide first aid kits, locks on the bedroom doors, and cable tv at about the same rate.
+
+
+### Predicting if Listing is Hosted by a Superhost
+
+The machine learning model I chose to use to predict `host_is_superhost` is a random forest model. I chose this model because it is a good feature selector, can handle binary, categorical, and numerical values, is robust to outliers, and has a low bias relative to other models.
+
+Prior to beginning the machine learning portion, I trimmed down the dataframe to include only the necessary columns.
+
+```{r ml_trim, message=FALSE, warning=FALSE}
+columnsToDelete <- c(txtCols, "id", "host_verifications")
+dat <- df[,colnames(df)[colnames(df) %in% unique(grep(paste(columnsToDelete,collapse="|"), 
+                        colnames(df), value=TRUE)) == FALSE]]
+print(colnames(dat))
+```
+
+The dataframe used for the machine learning portion now has `r ncol(dat)-1` variables.
+
+##### Class Balance
+
+```{r ml_balance, message=FALSE, warning=FALSE}
+# renaming host_is_superhost to class
+colnames(dat)[1] <- "class"
+
+# converting character columns to factor
+dat[,colnames(select_if(dat, is_character))] <- lapply(dat[,colnames(select_if(dat, is_character))], as.factor)
+
+# reordering factors
+dat$class <- factor(dat$class, levels(dat$class)[c(2,1)])
+levels(dat$class)
+
+# partitioning datasets into training and testing sets on a 80/20 split
+set.seed(123)
+intrain <- createDataPartition(y = dat$class, p = 0.8)[[1]]
+training <- dat[intrain,]
+testing <- dat[-intrain,]
+
+# viewing class balances in each set
+table(training$class)
+table(testing$class)
+```
+
+##### Sampling Methods
+
+Although a random forest can handle class imbalances, I used down-sampling and up-sampling techniques to see if these techniques improved my model in any way.
+
+**Down-sampling** randomly samples a data set on the majority class and reduces the number of observations so that all classes have the same frequency as the minority class.
+
+**Up-Sampling** samples with replacement on the minority class to make the class distributions equal. An advantage of the up-sampling technique is there is no data loss involved.
+
+```{r ml_sampling, message=FALSE, warning=FALSE}
+# creating down and up sampling training sets
+training_down <- downSample(x = dplyr::select(training,-class), training$class, yname="class")
+training_up <- upSample(x = dplyr::select(training,-class), training$class, yname="class")
+
+# viewing class balances in each set
+table(training_down$class)
+table(training_up$class)
+```
+
+Looks balanced!
+
+##### Training Random Forest Models
+
+Next, I created 3 random forest models for each training set using the area under the curve as the metric.
+
+```{r ml_rf, echo=TRUE, message=FALSE, warning=FALSE}
+# setting up function that allows extraction of five metrics instead of just accuracy
+fiveStats <- function(...)c(twoClassSummary(...), defaultSummary(...))
+
+# model parameters
+gridRF <- expand.grid(mtry = seq(from = 1, by = 1, to = ncol(training)-1))
+ctrl.crossRF <- trainControl(method = "cv", number = 5, 
+                             classProbs = TRUE, summaryFunction = fiveStats,
+                             savePredictions = TRUE)
+
+# rf models
+rf_original <- train(class ~ ., data = training, method = "rf", metric = "ROC",
+                     preProc = c("center", "scale"),
+                     ntree = 200, tuneGrid = gridRF,
+                     trControl = ctrl.crossRF)
+rf_down <- train(class ~ ., data = training_down, method = "rf", metric = "ROC",
+                     preProc = c("center", "scale"),
+                     ntree = 200, tuneGrid = gridRF,
+                     trControl = ctrl.crossRF)
+rf_up <- train(class ~ ., data = training_up, method = "rf", metric = "ROC",
+                     preProc = c("center", "scale"),
+                     ntree = 200, tuneGrid = gridRF,
+                     trControl = ctrl.crossRF)
+```
+
+##### Performance of Random Forest Models
+
+For ease of analysis, I created a list of all the random forest models and utilized `map` to write functions for the list.
+
+```{r ml_performance, echo=TRUE, message=FALSE, warning=FALSE}
+# creating list of all models ran
+model_list <- list(original = rf_original,
+                   down = rf_down,
+                   up = rf_up)
+```
+
+###### Confusion Matrices of Training and Testing Data
+
+```{r ml_performance_1, echo=TRUE, message=FALSE, warning=FALSE}
+# model performance
+model_list %>%
+  map(function(x) x$finalModel)
+```
+
+When evaluating the 3 models, `rf_original` had the lowest mtry of `r rf_original$finalModel$tuneValue`. `rf_down` and `rf_up` both have mtry of `r rf_up$finalModel$tuneValue`. The class error is drastically difference for `rf_original`, the sampling techniques appeared to have adjusted for the class error.
+
+```{r ml_performance_2, echo=TRUE, message=FALSE, warning=FALSE}
+# confusion matrices
+model_list %>%
+  map(function(x) confusionMatrix(predict(x, testing), testing$class)[2])
+
+model_list %>%
+  map(function(x) confusionMatrix(predict(x, testing), testing$class)$overall[c(1)])
+```
+
+Suprisingly, `rf_original` had the highest accuracy of all the models. `rf_up` is slightly lower than `rf_original`, and `rf_down` has the lowest accuracy. Since the accuracies of the models were close, I looked at the area under the curve to help determine the best model.
+
+###### Area Under the Curve
+
+```{r ml_performance_auc, echo=TRUE, message=FALSE, warning=FALSE}
+# area under the curve
+model_list_roc <- model_list %>%
+  map(function(x) roc(testing$class,
+                       predict(x, testing, type = "prob")[, "superhost"]))
+model_list_roc %>%
+  map(auc)
+
+# function to get roc results for each model
+results_list_roc <- list(NA)
+num_mod <- 1
+
+for(the_roc in model_list_roc){
+  results_list_roc[[num_mod]] <- data_frame(tpr = the_roc$sensitivities,
+               fpr = 1 - the_roc$specificities,
+               model = names(model_list)[num_mod])
+  num_mod <- num_mod + 1
+}
+
+results_df_roc <- bind_rows(results_list_roc)
+
+# plotting roc curve for each model
+ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_roc) +
+  geom_line(aes(color = model), size = 1) +
+  geom_abline(intercept = 0, slope = 1, color = "gray", size = 1) +
+  ggtitle("Area Under the Curve") +
+  xlab("false positive rate") +
+  ylab("true positive rate")
+```
+
+Although `rf_up` has a slightly lower accuracy than `rf_original`, it has a larger area under the curve (AUC). The two models are close in performance.
+
+###### Model Selection and Further Interpretations
+
+Based off of the class balances, accuracy, and AUC, the model I selected was the `rf_up` model. Given this model selection, I looked at the most important features for Superhost prediction.
+
+```{r ml_selection, echo=TRUE, message=FALSE, warning=FALSE}
+# evaluating variable performance
+imp <- as.data.frame(varImp(rf_up)$importance)
+imp <- rownames_to_column(imp) %>%
+  dplyr::rename(variable = rowname) %>%
+  arrange(-Overall)
+
+plot(varImp(rf_up), top = 20)
+```
+
+The most meaningful variable to a Superhost is getting reviews. `r imp$variable[1]` and `r imp$variable[2]` are the two highest variables of importance.
