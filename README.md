@@ -1,4 +1,4 @@
-# Airbnb
+# Predicting Host Ratings of Austin Airbnb Listings
 December 2019 Capstone Project
 
 ## Project Description
