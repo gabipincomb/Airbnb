@@ -84,7 +84,7 @@ library(DMwR)         # machine learning
 library(pROC)         # model evaluation
 ```
 
-### Data Cleansing
+## Data Cleansing
 
 * Variable selection 
 * Adjusting variable classes
@@ -591,7 +591,7 @@ print(colnames(dat))
 
 The dataframe used for the machine learning portion now has `r ncol(dat)-1` variables.
 
-#### Class Balance
+### Class Balance
 
 Prior to beginning to class balance check, I renamed the `host_is_superhost` column to `class` and converted the class variable into a factor. Then I split the data frame into training and testing sets with a 80/20 split. 
 
@@ -637,7 +637,7 @@ table(training_up$class)
 
 Both sets look balanced!
 
-#### Training Random Forest Models
+### Training Random Forest Models
 
 Next, I created 3 random forest models for each training set using the area under the curve as the metric of measure and ntree = 200. 
 
@@ -666,7 +666,7 @@ rf_up <- train(class ~ ., data = training_up, method = "rf", metric = "ROC",
                      trControl = ctrl.crossRF)
 ```
 
-#### Performance of Random Forest Models
+### Performance of Random Forest Models
 
 For ease of analysis, I created a list of all the random forest models and utilized `map` to write functions for the list.
 
@@ -677,7 +677,7 @@ model_list <- list(original = rf_original,
                    up = rf_up)
 ```
 
-##### Confusion Matrices of Training and Testing Data
+#### Confusion Matrices of Training and Testing Data
 
 ```{r ml_performance_1, echo=TRUE, message=FALSE, warning=FALSE}
 # model performance
@@ -698,7 +698,7 @@ model_list %>%
 
 Surprsingly, the highest accuracy on the testing sets is the `rf_original` model -- the `rf_up` model accuracy is slightly lower. The lowest accuracy is the `rf_down` model. Next, I looked at area under the curve (AUC) to help determine the best model.
 
-##### Area Under the Curve
+#### Area Under the Curve
 
 ```{r ml_performance_auc, echo=TRUE, message=FALSE, warning=FALSE}
 # area under the curve
@@ -732,7 +732,7 @@ ggplot(aes(x = fpr,  y = tpr, group = model), data = results_df_roc) +
 
 Based on AUC, `rf_up` appears to be the best model. It has a larger AUC than the other models. The lowest AUC is `rf_down` due to the higher false positive rate. 
 
-##### Model Selection and Further Interpretations
+### Model Selection and Further Interpretations
 
 Based off of the class balances, accuracy, and AUC, I was able to determine `rf_up` as the optimal model. Given this model selection, I decided to use this model and determine what features are most important for predicting a Superhost.
 
