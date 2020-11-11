@@ -685,7 +685,7 @@ model_list %>%
   map(function(x) x$finalModel)
 ```
 
-When evaluating the 3 models, `rf_original` had the lowest mtry of `r rf_original$finalModel$tuneValue`. `rf_down` and `rf_up` both have mtry of `r rf_up$finalModel$tuneValue`. The class error is drastically difference for `rf_original`, the sampling techniques appeared to have adjusted for the class error, with `rf_up` having the best adjustment.
+When evaluating the 3 models, `rf_original`, `rf_down`, and `rf_up` had a mtry of `r rf_original$finalModel$tuneValue`. The class error is different between `rf_original` and the sampled models, the up-sample technique `rf_up` had the best adjustment.
 
 ```{r ml_performance_2, echo=TRUE, message=FALSE, warning=FALSE}
 # confusion matrices
